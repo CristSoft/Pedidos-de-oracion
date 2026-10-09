@@ -7,8 +7,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f4fafe",
-  "theme_color": "#1684b6",
+  "background_color": "#F7F9F8",
+  "theme_color": "#17647A",
   "icons": [
     { "src": "/icons/prayer-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/prayer-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
