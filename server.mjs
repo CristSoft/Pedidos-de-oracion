@@ -4,6 +4,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scheduleFields, isReceptionOpen, receptionDays } from './public/schedule.js';
+import { generateSummaries, SummaryError } from './shared/gemini-summary.js';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const store=process.env.DATA_FILE||path.join(root,'data','store.json');
 await mkdir(path.dirname(store),{recursive:true});
@@ -36,6 +37,9 @@ http.createServer(async(req,res)=>{try{
  if(req.method==='GET'&&url.pathname==='/api/shared-requests')return json(res,200,db.requests.map(item=>({id:item.id,number:item.number,name:item.private?'Anónimo':item.name,private:item.private,reasons:item.reasons,createdAt:item.createdAt,status:item.status})).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)));
  if(req.method==='DELETE'&&/^\/api\/requests\/[a-f0-9]{16}$/.test(url.pathname)){const id=url.pathname.split('/').pop(),item=db.requests.find(r=>r.id===id);if(!item)return json(res,200,{deleted:true});const b=await body(req);if(!authorized(req)&&(typeof b.key!=='string'||b.key!==item.key))return json(res,403,{error:'No tenés permiso para borrar este pedido.'});db.requests=db.requests.filter(r=>r.id!==id);await save();return json(res,200,{deleted:true});}
  if(!authorized(req))return json(res,401,{error:'Ingresá a administración para continuar.'});
+ if(req.method==='POST'&&url.pathname==='/api/summary'){
+ const b=await body(req);try{return json(res,200,{summaries:await generateSummaries(b.entries,process.env.GEMINI_API_KEY)});}
+ catch(error){if(error instanceof SummaryError)return json(res,error.status,{error:error.message});throw error;}}
  if(req.method==='DELETE'&&url.pathname==='/api/requests'){
  const b=await body(req);if(!Array.isArray(b.ids)||b.ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{16}$/.test(id)))return json(res,400,{error:'La lista de pedidos para eliminar no es válida.'});
  const ids=new Set(b.ids),deletedCount=db.requests.filter(item=>ids.has(item.id)).length;db.requests=db.requests.filter(item=>!ids.has(item.id));await save();return json(res,200,{deletedCount});}
@@ -46,7 +50,7 @@ http.createServer(async(req,res)=>{try{
  }
  if(req.method!=='GET')return json(res,405,{error:'Método no permitido.'});
  const file=url.pathname==='/'?'index.html':url.pathname.slice(1);
- const staticFiles=['index.html','styles.css','app.js','backend.js','firebase-backend.js','firebase-config.js','schedule.js','group-rules.js','prayer-progress.js','numbered-transaction.js','prayer-summary.js','admin-actions.js','bulk-delete.js','manifest.webmanifest','favicon.ico',
+ const staticFiles=['index.html','styles.css','app.js','backend.js','firebase-backend.js','firebase-config.js','schedule.js','group-rules.js','prayer-progress.js','numbered-transaction.js','prayer-summary.js','summary-config.js','admin-actions.js','bulk-delete.js','manifest.webmanifest','favicon.ico',
   ...['clipboard-list','x','sliders-horizontal','download','printer','chevron-down','trash-2','hands-praying','prayer-app'].map(name=>'icons/'+name+'.svg'),
   ...['prayer-32','prayer-180','prayer-192','prayer-512','prayer-maskable-512'].map(name=>'icons/'+name+'.png')];
  if(!staticFiles.includes(file))return json(res,404,{error:'No encontrado.'});

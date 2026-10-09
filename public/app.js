@@ -14,7 +14,7 @@ import { setupAdminActions, clearSummarySession } from './admin-actions.js';
 let personalProgress=new Set();try{personalProgress=readPrayerProgress(localStorage);}catch{}
 const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 const libraryIcon=name=>`<img class="icon" src="/icons/${name}.svg" alt="" aria-hidden="true">`;
-async function api(url,method='GET',data){return backendApi(url,method,data,token);}
+async function api(url,method='GET',data,options){return backendApi(url,method,data,token,options);}
 function toast(message){const el=$('#toast');el.textContent=message;el.className='toast-show';setTimeout(()=>el.className='',4000);}
 function header(eyebrow,title,intro){return `<div class="heading-row"><div><h1>${title}</h1>${intro?`<p class="intro">${intro}</p>`:''}</div></div>`;}
 function updateTabs(list,selected){

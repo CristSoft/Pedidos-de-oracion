@@ -1,0 +1,2 @@
+# Solo para desarrollo local de Wrangler. Copiar como .dev.vars (ignorado por Git).
+GEMINI_API_KEY=reemplazar-por-la-clave-de-gemini

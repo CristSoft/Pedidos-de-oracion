@@ -6,10 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 test('Pedidos privados, un motivo por envío, administración y horario',async t=>{
- const dir=await mkdtemp(path.join(os.tmpdir(),'oracion-'));const proc=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:'3109',ADMIN_PASSWORD:'test-secret',DATA_FILE:path.join(dir,'store.json')},stdio:['ignore','pipe','pipe']});
+ const dir=await mkdtemp(path.join(os.tmpdir(),'oracion-'));const proc=spawn(process.execPath,['server.mjs'],{env:{...process.env,PORT:'3109',ADMIN_PASSWORD:'test-secret',GEMINI_API_KEY:'',DATA_FILE:path.join(dir,'store.json')},stdio:['ignore','pipe','pipe']});
  t.after(async()=>{proc.kill();await once(proc,'exit');await rm(dir,{recursive:true,force:true});});await once(proc.stdout,'data');
  let token='';async function api(url,method='GET',data){const r=await fetch('http://localhost:3109/api'+url,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},...(data?{body:JSON.stringify(data)}:{})});return {status:r.status,body:await r.json()};}
  assert.equal((await api('/requests')).status,401);
+ assert.equal((await api('/summary','POST',{entries:[]})).status,401);
  const home=await fetch('http://localhost:3109/');assert.equal(home.status,200);assert.match(await home.text(),/Mis pedidos[\s\S]*Todos los pedidos[\s\S]*Cómo funciona/);
  assert.equal((await fetch('http://localhost:3109/backend.js')).status,200);
  assert.equal((await api('/login','POST',{password:'wrong'})).status,401);
@@ -50,6 +51,8 @@ test('Pedidos privados, un motivo por envío, administración y horario',async t
  const arriving=(await api('/requests','POST',{name:'Ana',reasons:[{category:'Salud',text:'Pedido recién llegado'}]})).body;
  token='';assert.equal((await api('/requests','DELETE',{ids:[before.id,second.id]})).status,401);
  token=(await api('/login','POST',{password:'test-secret'})).body.token;
+ assert.equal((await api('/summary','POST',{entries:[]})).status,400);
+ assert.equal((await api('/summary','POST',{entries:[{id:'pedido-1',name:'Ana',reasons:['Por mi salud']}]})).status,503);
  assert.equal((await api('/requests','DELETE')).status,400);
  assert.equal((await api('/requests','DELETE',{ids:['invalid']})).status,400);
  assert.equal((await api('/requests','DELETE',{ids:[before.id,second.id,second.id]})).body.deletedCount,2);

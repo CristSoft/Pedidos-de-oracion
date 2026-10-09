@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unidos-oracion-resumen",
+  "account_id": "d7dc264d5c1c8caaf290ab4ed2ef8157",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-08",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "FIREBASE_PROJECT_ID": "pedidos-de-oracion-sur",
+    "ALLOWED_ORIGINS": "https://pedidos-de-oracion-sur.web.app,https://pedidos-de-oracion-sur.firebaseapp.com,http://localhost:3000,http://localhost:3112"
+  },
+  "ratelimits": [
+    { "name": "IP_LIMITER", "namespace_id": "6548359016761", "simple": { "limit": 60, "period": 60 } },
+    { "name": "ADMIN_LIMITER", "namespace_id": "6548359016762", "simple": { "limit": 30, "period": 60 } }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}

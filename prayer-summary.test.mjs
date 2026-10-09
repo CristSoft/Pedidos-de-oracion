@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupRequests, formatSummary, summarizeRequests } from './public/prayer-summary.js';
+import { groupRequests, formatSummary, summarizeRequests as assembleSummary } from './public/prayer-summary.js';
+import { generateSummaries } from './shared/gemini-summary.js';
 import { shareText } from './public/admin-actions.js';
+// Exercise the browser/server protocol together without sending credentials from the client.
+async function summarizeRequests(requests, key, options) {
+  return assembleSummary(requests, async (entries, { signal }) => ({
+    summaries: await generateSummaries(entries, key, { ...options, signal })
+  }), options);
+}
 const request = (name, number, extra = {}) => ({ name, number, reasons: [{ text: `Motivo ${number}` }], ...extra });
 const answer = items => new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: {
   parts: [{ text: JSON.stringify({ summaries: items.map(item => ({ id: item.id, text: `Pide por ${item.reasons.join(' y ')}.` })) }) }]
@@ -69,4 +76,12 @@ test('Compartir llama al sistema dentro de la pulsación con el texto exacto', a
   assert.equal(invoked, true); await promise;
   assert.throws(() => shareText('Texto', {}), /copiar el texto/);
   assert.throws(() => shareText('Texto', { share() {}, canShare: () => false }), /copiarlo/);
+});
+
+test('El navegador solicita resúmenes sin recibir ni enviar una API key', async () => {
+  const text = await assembleSummary([request('Ana', 1)], async entries => {
+    assert.deepEqual(Object.keys(entries[0]), ['id', 'name', 'reasons']);
+    return { summaries: [{ id: entries[0].id, text: 'Pide por su familia.' }] };
+  });
+  assert.equal(text, '*Ana:*\nPide por su familia.');
 });

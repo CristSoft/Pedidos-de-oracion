@@ -13,6 +13,7 @@ Aplicación web en español para recibir, organizar y compartir pedidos de oraci
 - [Uso de la aplicación](#uso-de-la-aplicación)
 - [Resúmenes con Gemini y WhatsApp](#resúmenes-con-gemini-y-whatsapp)
 - [Firebase y despliegue](#firebase-y-despliegue)
+- [Servicio de resúmenes en Cloudflare](#servicio-de-resúmenes-en-cloudflare)
 - [Datos y privacidad](#datos-y-privacidad)
 - [Pruebas y mantenimiento](#pruebas-y-mantenimiento)
 - [Estructura del proyecto](#estructura-del-proyecto)
@@ -58,13 +59,15 @@ La interfaz utiliza HTML, CSS y JavaScript con módulos ES, sin una etapa de com
 
 El servidor local usa los módulos nativos de Node.js. Las dependencias de desarrollo permiten ejecutar las pruebas de Firestore, las herramientas administrativas y gestionar los íconos. En la versión publicada, los módulos del SDK de Firebase se importan desde el CDN de Google.
 
-Los resúmenes se generan desde el navegador mediante la API de Gemini, sin guardar la clave en los archivos públicos ni en Firestore.
+En la versión publicada, un Cloudflare Worker genera los resúmenes con Gemini. El navegador envía los pedidos agrupados y el token de la sesión de Firebase; el Worker verifica su firma, vencimiento, proyecto y permiso `prayerAdmin` antes de llamar a Gemini. La API key queda guardada como secreto del Worker y nunca se entrega al navegador. Esta arquitectura no utiliza Firebase Functions ni requiere cambiar Firebase a Blaze.
+
+En modo local, Node.js genera los resúmenes mediante la misma integración de Gemini y una clave configurada en el entorno del servidor.
 
 ## Instalación local
 
 ### Requisitos
 
-- Node.js 20 o superior y npm.
+- Node.js 22 o superior y npm.
 - Git para clonar el repositorio.
 - Conexión a Internet para Gemini y para el modo Firebase.
 - Firebase CLI y Java 21 o superior únicamente para las pruebas con emulador.
@@ -102,6 +105,7 @@ ADMIN_PASSWORD='reemplazar-por-una-contraseña-propia' npm start
 | `PORT` | `3000` | Puerto del servidor HTTP. |
 | `ADMIN_PASSWORD` | `oracion` | Contraseña del panel local. Configurar una propia para uso real. |
 | `DATA_FILE` | `data/store.json` | Ubicación del archivo de pedidos y configuración. |
+| `GEMINI_API_KEY` | Sin configurar | Clave de Gemini para generar resúmenes en el servidor local. |
 | `NODE_EXTRA_CA_CERTS` | Sin configurar | Archivo de certificados adicionales cuando el entorno los requiere. |
 
 El proyecto no carga archivos `.env` automáticamente. Las variables deben estar disponibles en el entorno del proceso que inicia Node.js.
@@ -113,6 +117,8 @@ El servidor guarda cambios en el archivo definido por `DATA_FILE`. Para uso pers
 La configuración de cliente está en `public/firebase-config.js`; incluye el proyecto, la aplicación, el dominio de autenticación y el correo de la cuenta administrativa. Es la misma configuración que recibe el navegador al abrir la aplicación. Las credenciales privadas de administración y Gemini se mantienen fuera de ese archivo.
 
 Los destinos de Hosting y Firestore se definen en `firebase.json` y `.firebaserc`. Los comandos de despliegue y algunos scripts operativos incluyen el proyecto y la cuenta del despliegue actual. Para instalar en otro proyecto, adaptar también `package.json` y los scripts correspondientes antes de ejecutarlos.
+
+`public/summary-config.js` contiene únicamente la URL pública del servicio de resúmenes. La clave privada se configura en Cloudflare, como se explica en [Servicio de resúmenes en Cloudflare](#servicio-de-resúmenes-en-cloudflare).
 
 ## Uso de la aplicación
 
@@ -156,11 +162,11 @@ La aplicación requiere conexión para consultar o enviar pedidos en Firebase; n
 
 1. Entrar en **Administración → Pedidos**.
 2. Presionar **Compartir todos los pedidos**.
-3. Ingresar la API key de Gemini y generar el resumen.
+3. Esperar la generación automática del resumen.
 4. Revisar o editar el texto en la vista previa.
 5. Presionar **Compartir** para abrir las opciones del sistema, o **Copiar texto** para pegarlo en WhatsApp.
 
-La clave permanece únicamente en memoria durante la sesión de la página. Se descarta al salir de Administración o recargar, y no se guarda en `localStorage`, `sessionStorage` ni Firestore. Los nombres visibles y los motivos se envían a Gemini mediante HTTPS para generar el resumen.
+Los administradores no necesitan ingresar ni conocer la API key. El responsable de la instalación la configura una sola vez como secreto de Cloudflare; continúa disponible después de cerrar sesión o recargar la aplicación. Los nombres visibles y los motivos se envían mediante HTTPS al Worker y a Gemini para generar el resumen. La clave no se guarda en `localStorage`, `sessionStorage` ni Firestore.
 
 Las entradas del mismo nombre se agrupan, ignorando mayúsculas y espacios repetidos. Los pedidos anónimos se muestran separados porque no es posible atribuirlos a una misma persona.
 
@@ -176,7 +182,7 @@ Pide por su salud.
 Pide por su familia.
 ```
 
-El modelo se define en la constante `GEMINI_MODEL`, dentro de `public/prayer-summary.js`. La integración utiliza respuestas estructuradas, procesa los pedidos por lotes y valida que cada entrada tenga su resumen. Las claves privadas de los comprobantes no se envían a Gemini. Revisar el texto antes de compartir: el contenido generado por IA puede requerir correcciones.
+El modelo se define en la constante `GEMINI_MODEL`, dentro de `shared/gemini-summary.js`. La integración utiliza respuestas estructuradas, procesa hasta veinte pedidos por lote y valida que cada entrada tenga su resumen. Las claves privadas de los comprobantes no se envían al servicio de resúmenes ni a Gemini. Revisar el texto antes de compartir: el contenido generado por IA puede requerir correcciones.
 
 El segundo botón **Compartir**, dentro de la vista previa, invoca `navigator.share()` directamente desde la pulsación, después de completar la generación. La disponibilidad de esta función y las aplicaciones ofrecidas dependen del navegador y el dispositivo. Compartir y copiar requieren HTTPS o `localhost`. Si el sistema no permite compartir el texto, queda disponible la opción de copiarlo.
 
@@ -215,6 +221,37 @@ firebase deploy --only hosting --project pedidos-de-oracion-sur
 
 Para comprobar Firebase desde el servidor local, abrir [http://localhost:3000/?firebase=1](http://localhost:3000/?firebase=1). Esta dirección se conecta con la base configurada, incluidos sus datos reales; las pruebas automatizadas de reglas utilizan un proyecto de demostración separado.
 
+## Servicio de resúmenes en Cloudflare
+
+El servicio actual está publicado en `https://unidos-oracion-resumen.controlstock.workers.dev`. Solo acepta solicitudes de los dominios indicados en `ALLOWED_ORIGINS` y requiere una sesión administrativa válida de Firebase. La autenticación se comprueba en el servidor; restringir los dominios por sí solo no reemplaza ese control.
+
+### Preparar y publicar el Worker
+
+1. Disponer de una cuenta de Cloudflare y ejecutar `npm ci` con Node.js 22 o superior.
+2. Autenticarse con `npx wrangler login`.
+3. Adaptar `name`, `account_id`, `FIREBASE_PROJECT_ID` y `ALLOWED_ORIGINS` en `wrangler.jsonc` si se utiliza otra instalación.
+4. Publicar el código y cargar el secreto:
+
+```sh
+npm run deploy:summary
+npx wrangler secret put GEMINI_API_KEY
+```
+
+El segundo comando solicita la clave de forma interactiva. No escribirla en `wrangler.jsonc`, archivos públicos, argumentos de comandos ni Git. Para cambiarla posteriormente, ejecutar de nuevo `npx wrangler secret put GEMINI_API_KEY`; los administradores continúan usando la aplicación sin configurar nada.
+
+5. Colocar la URL del Worker publicada en `public/summary-config.js`.
+6. Publicar Firebase Hosting y comprobar el resumen desde una sesión administrativa.
+
+El plan de Firebase permanece independiente del servicio de Cloudflare. Las cuotas y condiciones de Cloudflare y Gemini deben revisarse en las cuentas correspondientes; la instalación no garantiza uso ilimitado ni modifica la facturación de Gemini. Consultar la documentación oficial de [secretos de Workers](https://developers.cloudflare.com/workers/configuration/secrets/) y [planes y cuotas de Workers](https://developers.cloudflare.com/workers/platform/pricing/).
+
+### Desarrollo y límites
+
+Para probar el Worker localmente, copiar `.dev.vars.example` a `.dev.vars`, completar la clave y ejecutar `npm run dev:summary`. Ese archivo está excluido de Git. El Worker sigue requiriendo un token administrativo real del proyecto configurado. Para probar la interfaz contra él, actualizar temporalmente `public/summary-config.js` con la URL local que informa Wrangler y abrir la aplicación con `?firebase=1` desde un origen permitido.
+
+Para el modo local habitual de Node.js, configurar `GEMINI_API_KEY` en el entorno antes de `npm start`; no se utiliza el Worker ni se necesita una sesión de Firebase. Sin esa variable, las demás funciones continúan disponibles y la generación muestra un mensaje de configuración pendiente.
+
+El Worker limita las solicitudes por IP y por administrador a 60 y 30 por minuto, respectivamente. Estos límites se aplican por ubicación de Cloudflare, no representan un tope global de gasto. Además valida el tamaño del cuerpo, la cantidad de entradas y el contenido de cada lote. La observabilidad registra estados, cantidades y duración, sin registrar nombres, motivos, claves ni tokens. El servicio no almacena los pedidos.
+
 ## Datos y privacidad
 
 | Ubicación | Contenido |
@@ -231,7 +268,7 @@ Cada navegador conserva las claves de sus propios comprobantes. Estas claves per
 
 El nombre recordado, las claves de pedidos propios y las marcas personales de oración se guardan en el navegador. Borrar sus datos elimina el acceso personal a esos comprobantes y las marcas guardadas. Evitar compartir el navegador cuando se necesite proteger ese acceso.
 
-Las carpetas `.secrets/`, `data/`, `.firebase/` y `output/`, los archivos de entorno y los registros de ejecución están excluidos de Git. Las credenciales y los pedidos reales no forman parte del repositorio.
+Las carpetas `.secrets/`, `data/`, `.firebase/`, `.wrangler/` y `output/`, los archivos de entorno y los registros de ejecución están excluidos de Git. Las credenciales y los pedidos reales no forman parte del repositorio. Al generar un resumen, los datos seleccionados se procesan en Cloudflare y Gemini; revisar sus condiciones de tratamiento de datos antes de usar la función con información sensible.
 
 ## Pruebas y mantenimiento
 
@@ -241,7 +278,7 @@ Las carpetas `.secrets/`, `data/`, `.firebase/` y `output/`, los archivos de ent
 npm test
 ```
 
-Las pruebas cubren la API local, los horarios, la numeración, el registro personal de oración, la privacidad de los registros compartidos, los resúmenes con Gemini y el borrado por lotes. La prueba de Gemini utiliza respuestas simuladas y no requiere una API key ni consume cuota.
+Las pruebas cubren la API local, los horarios, la numeración, el registro personal de oración, la privacidad de los registros compartidos, los resúmenes con Gemini y el borrado por lotes. También verifican firmas y permisos de tokens de Firebase, orígenes permitidos, límites del Worker y errores del proveedor. Las pruebas automatizadas de Gemini utilizan respuestas simuladas y no requieren una API key ni consumen cuota.
 
 ### Reglas de Firestore
 
@@ -276,8 +313,9 @@ Pedidos-de-oracion/
 │   ├── backend.js                 # Selección del proveedor de datos
 │   ├── firebase-backend.js        # Authentication y Firestore
 │   ├── firebase-config.js         # Configuración pública del cliente
+│   ├── summary-config.js          # URL pública del servicio de resúmenes
 │   ├── admin-actions.js           # Borrado total y flujo de compartir
-│   ├── prayer-summary.js          # Gemini, agrupación y formato WhatsApp
+│   ├── prayer-summary.js          # Agrupación, lotes y formato WhatsApp
 │   ├── bulk-delete.js             # Eliminación de registros por lotes
 │   ├── schedule.js                # Reglas de horarios
 │   ├── numbered-transaction.js    # Reintentos de numeración
@@ -286,11 +324,17 @@ Pedidos-de-oracion/
 │   ├── manifest.webmanifest      # Instalación de la aplicación
 │   └── icons/                     # Íconos y licencias de terceros
 ├── scripts/                       # Verificación y mantenimiento
+├── shared/gemini-summary.js        # Integración de Gemini para el servidor
+├── worker/
+│   ├── index.js                   # API, validación y límites de solicitudes
+│   └── auth.js                    # Verificación de tokens de Firebase
 ├── tests/firestore-rules.mjs       # Pruebas del emulador
 ├── *.test.mjs                     # Pruebas de la aplicación
 ├── server.mjs                     # Servidor y API locales
 ├── firestore.rules                # Permisos y validaciones de Firestore
 ├── firebase.json                  # Hosting y emulador
+├── wrangler.jsonc                 # Configuración del Worker, sin secretos
+├── .dev.vars.example              # Plantilla para desarrollo del Worker
 ├── package.json
 ├── package-lock.json
 ├── LICENSE

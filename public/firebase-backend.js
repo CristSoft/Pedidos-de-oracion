@@ -9,6 +9,7 @@ import { runWithNumberRetry } from './numbered-transaction.js';
 import { deleteRequestBatches } from './bulk-delete.js';
 import { firebaseConfig, adminEmail } from './firebase-config.js';
 import { scheduleFields, isReceptionOpen, receptionDays } from './schedule.js';
+import { summaryServiceUrl } from './summary-config.js';
 
 const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
 const persistence = setPersistence(auth, browserSessionPersistence);
@@ -28,6 +29,24 @@ async function isAdmin() {
 }
 export async function restoreAdminSession() { return isAdmin(); }
 export async function logoutAdmin() { await signOut(auth); }
+export async function generateSummaryBatch(entries, { signal } = {}) {
+  if (!await isAdmin()) throw fail('Ingresá a Administración para generar el resumen.', 401);
+  if (!summaryServiceUrl) throw fail('El servicio de resúmenes todavía no está configurado.', 503);
+  const idToken = await auth.currentUser.getIdToken();
+  let response;
+  try {
+    response = await fetch(summaryServiceUrl + '/summary', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+      body: JSON.stringify({ entries }), signal, credentials: 'omit'
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw fail('No pudimos conectar con el servicio de resúmenes. Revisá tu conexión y volvé a intentar.', 502);
+  }
+  const result = await response.json();
+  if (!response.ok) throw fail(result.error || 'No pudimos generar el resumen.', response.status);
+  return result;
+}
 function reception(data) {
   return { ...data, days: receptionDays(data), open: isReceptionOpen(data), demoPassword: false };
 }

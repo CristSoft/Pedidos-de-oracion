@@ -1,8 +1,8 @@
 import { summarizeRequests } from './prayer-summary.js';
 
-let geminiKey = '', activeController;
+let activeController;
 const $ = selector => document.querySelector(selector);
-export function clearSummarySession() { geminiKey = ''; activeController?.abort(); $('#share-dialog').close(); }
+export function clearSummarySession() { activeController?.abort(); $('#share-dialog').close(); }
 export function shareText(text, navigatorImpl = navigator) {
   if (typeof navigatorImpl.share !== 'function') throw new Error('Este navegador no ofrece Compartir del sistema. Podés copiar el texto.');
   if (navigatorImpl.canShare && !navigatorImpl.canShare({ text })) throw new Error('El sistema no puede compartir este texto. Podés copiarlo.');
@@ -46,26 +46,26 @@ function showSummary({ api, toast }) {
   const dialog = $('#share-dialog');
   dialog.innerHTML = `<div class="dialog-heading"><h2 id="share-title">Compartir todos los pedidos</h2><button type="button" class="icon-button" id="close-share" aria-label="Cerrar">×</button></div>
     <div class="share-content"><p>Gemini resumirá todos los pedidos, agrupados por nombre. Los nombres ocultos seguirán anónimos.</p>
-    <form id="gemini-form"><label class="field-label" for="gemini-key">API key de Gemini</label><input id="gemini-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required>
-    <p class="field-help">La clave se conserva solo en memoria hasta salir de Administración o recargar. Los nombres visibles y los motivos se envían a Gemini para resumirlos.</p><button type="submit" class="primary">Generar resumen con IA</button></form>
+    <p class="field-help">El resumen se genera automáticamente. Los nombres visibles y los motivos se procesan con Gemini.</p>
     <p id="summary-progress" role="status" aria-live="polite" hidden></p><p id="summary-error" class="error" role="alert" hidden></p>
+    <button type="button" class="secondary" id="retry-summary" hidden>Volver a intentar</button>
     <div id="summary-result" hidden><label class="field-label" for="summary-text">Texto para WhatsApp · Podés editarlo</label><textarea id="summary-text" rows="12"></textarea>
     <p class="field-help">Los nombres entre *asteriscos* se mostrarán en negrita en WhatsApp. Revisá el resumen antes de compartir.</p>
     <div class="share-actions"><button class="primary" type="button" id="share-summary">Compartir</button><button class="secondary" type="button" id="copy-summary">Copiar texto</button><button class="secondary" type="button" id="regenerate-summary">Volver a generar</button></div></div></div>`;
   const controller = new AbortController(); activeController = controller;
   dialog.onclose = () => {
-    controller.abort(); $('#gemini-key').value = ''; $('#summary-text').value = '';
+    controller.abort(); $('#summary-text').value = '';
     document.body.classList.remove('dialog-open');
   };
   $('#close-share').onclick = () => dialog.close();
-  const errorBox = $('#summary-error'), progress = $('#summary-progress'), form = $('#gemini-form'), result = $('#summary-result'), text = $('#summary-text');
+  const errorBox = $('#summary-error'), progress = $('#summary-progress'), retry = $('#retry-summary'), result = $('#summary-result'), text = $('#summary-text');
   const fail = message => { errorBox.textContent = message; errorBox.hidden = false; };
   async function generate() {
-    errorBox.hidden = true; form.hidden = result.hidden = true; progress.hidden = false; progress.textContent = 'Consultando todos los pedidos…';
+    errorBox.hidden = true; retry.hidden = result.hidden = true; progress.hidden = false; progress.textContent = 'Consultando todos los pedidos…';
     try {
       const snapshot = await api('/requests');
       if (controller.signal.aborted) return;
-      text.value = await summarizeRequests(snapshot, geminiKey, { signal: controller.signal,
+      text.value = await summarizeRequests(snapshot, (entries, options) => api('/summary', 'POST', { entries }, options), { signal: controller.signal,
         onProgress: (current, total) => { progress.textContent = `Resumiendo con Gemini… ${current} de ${total}`; }
       });
       if (controller.signal.aborted) return;
@@ -75,10 +75,10 @@ function showSummary({ api, toast }) {
       $('#share-summary').focus();
     } catch (error) {
       if (controller.signal.aborted) return;
-      fail(error.message); form.hidden = false;
+      fail(error.message); retry.hidden = false;
     } finally { if (!controller.signal.aborted) progress.hidden = true; }
   }
-  form.onsubmit = event => { event.preventDefault(); geminiKey = $('#gemini-key').value.trim(); $('#gemini-key').value = ''; generate(); };
+  retry.onclick = generate;
   $('#regenerate-summary').onclick = generate;
   text.oninput = () => { $('#share-summary').disabled = !text.value.trim() || typeof navigator.share !== 'function'; $('#copy-summary').disabled = !text.value.trim(); };
   $('#share-summary').onclick = async () => {
@@ -96,5 +96,5 @@ function showSummary({ api, toast }) {
     catch { text.focus(); text.select(); fail('Seleccionamos el texto. Copialo desde el menú de tu dispositivo.'); }
   };
   openDialog(dialog);
-  if (geminiKey) generate();
+  generate();
 }

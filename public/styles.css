@@ -108,7 +108,7 @@ body:has(#prayer-form) .toast-show{bottom:calc(100px + env(safe-area-inset-botto
 #share-dialog{width:720px;max-width:calc(100% - 24px);max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line);border-radius:8px;color:var(--ink);overflow:auto}
 #share-dialog>.dialog-heading{position:sticky;top:0;z-index:1}
 .share-content{padding:20px 24px}.share-content>p:first-child{margin-top:0;color:var(--muted)}
-#gemini-form>.primary{margin-top:18px}#summary-progress{color:var(--blue-dark)}#summary-error{margin-top:18px}
+#summary-progress{color:var(--blue-dark)}#summary-error{margin-top:18px}
 #summary-text{min-height:260px;line-height:1.6}.share-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
 @media(max-width:650px){.admin-bulk-actions>button{width:100%}.share-content{padding:18px 16px}.share-actions>button{flex:1 1 180px}}
 @media print{.admin-bulk-actions,dialog{display:none}}

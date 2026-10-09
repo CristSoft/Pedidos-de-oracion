@@ -15,3 +15,7 @@ output/
 *.pfx
 .DS_Store
 Thumbs.db
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

@@ -5,10 +5,14 @@ async function provider() {
   firebase ||= import('./firebase-backend.js');
   return firebase;
 }
-export async function backendApi(url, method = 'GET', data, token = '') {
-  if (cloud) return (await provider()).api(url, method, data);
+export async function backendApi(url, method = 'GET', data, token = '', options = {}) {
+  if (cloud) {
+    if (url === '/summary' && method === 'POST') return (await provider()).generateSummaryBatch(data.entries, options);
+    return (await provider()).api(url, method, data);
+  }
   const response = await fetch('/api' + url, {
     method,
+    signal: options.signal,
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     ...(data ? { body: JSON.stringify(data) } : {})
   });
