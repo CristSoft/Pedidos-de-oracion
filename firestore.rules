@@ -77,6 +77,55 @@ service cloud.firestore {
       allow delete: if admin() || deletingOriginal(publicId);
     }
     match /prayerFeed/{publicId} {
+      function available() {
+        return exists(/databases/$(database)/documents/prayerFeed/$(publicId));
+      }
+      function receiptPath(key) {
+        return /databases/$(database)/documents/prayerFeed/$(publicId)/participationKeys/$(key);
+      }
+      function participantPath(voteId) {
+        return /databases/$(database)/documents/prayerFeed/$(publicId)/participants/$(voteId);
+      }
+      function ownerPath(voteId) {
+        return /databases/$(database)/documents/prayerFeed/$(publicId)/participantOwners/$(voteId);
+      }
+      function addingParticipant(voteId) {
+        let key = getAfter(ownerPath(voteId)).data.key;
+        return key.matches('^[a-f0-9]{48}$')
+          && (!exists(receiptPath(key)) || get(receiptPath(key)).data.voteId == null)
+          && getAfter(receiptPath(key)).data.voteId == voteId;
+      }
+      function removingParticipant(voteId) {
+        let key = get(ownerPath(voteId)).data.key;
+        return get(receiptPath(key)).data.voteId == voteId
+          && getAfter(receiptPath(key)).data.voteId == null;
+      }
+      match /participationKeys/{key} {
+        allow get: if available() && key.matches('^[a-f0-9]{48}$');
+        allow create, update: if available() && key.matches('^[a-f0-9]{48}$')
+          && request.resource.data.keys().hasOnly(['voteId'])
+          && ((request.resource.data.voteId == null
+              && (!exists(receiptPath(key)) || resource.data.voteId == null
+                || (!existsAfter(participantPath(resource.data.voteId)) && !existsAfter(ownerPath(resource.data.voteId)))))
+            || (request.resource.data.voteId is string && request.resource.data.voteId.matches('^[a-f0-9]{32}$')
+              && (!exists(receiptPath(key)) || resource.data.voteId == null)
+              && getAfter(ownerPath(request.resource.data.voteId)).data.key == key
+              && getAfter(participantPath(request.resource.data.voteId)).data.praying == true));
+      }
+      match /participants/{voteId} {
+        allow read: if available();
+        allow create: if available() && voteId.matches('^[a-f0-9]{32}$')
+          && request.resource.data == {'praying': true} && addingParticipant(voteId);
+        allow delete: if available() && removingParticipant(voteId)
+          && !existsAfter(ownerPath(voteId));
+      }
+      match /participantOwners/{voteId} {
+        allow create: if available() && voteId.matches('^[a-f0-9]{32}$')
+          && request.resource.data.keys().hasOnly(['key']) && addingParticipant(voteId)
+          && getAfter(participantPath(voteId)).data.praying == true;
+        allow delete: if available() && removingParticipant(voteId)
+          && !existsAfter(participantPath(voteId));
+      }
       // Shared records never contain receipt keys or confidential names from historical records.
       allow read: if true;
       allow create: if receptionOpen() && publicId.matches('^[a-f0-9]{32}$')

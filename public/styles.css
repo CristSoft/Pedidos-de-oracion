@@ -110,7 +110,8 @@ textarea { min-height: 180px; resize: vertical; line-height: 1.6; }
 .request-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--border); }
 .personal-prayer { display: inline-flex; align-items: center; justify-content: flex-start; gap: 9px; min-height: 48px; max-width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--primary); font-size: 1.125rem; font-weight: 600; text-align: left; line-height: 1.45; }
 .personal-prayer:hover, .personal-prayer.prayed { background: var(--accent); }
-.personal-prayer.prayed { font-size: 1rem; }
+.prayer-count { margin: 18px 0 0; color: var(--primary); font-size: .9375rem; }
+.personal-prayer:disabled { opacity: .6; cursor: wait; }
 .personal-prayer .icon { width: 20px; height: 20px; }
 .confidential { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 0.875rem; }
 .confidential .icon { width: 16px; height: 16px; }

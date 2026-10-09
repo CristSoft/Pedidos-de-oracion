@@ -29,7 +29,8 @@ Aplicación web en español para recibir, organizar y compartir pedidos de oraci
 - Posibilidad de ocultar el nombre antes de enviar.
 - Consulta de los pedidos propios y de todos los pedidos compartidos.
 - Numeración consecutiva que se conserva al ordenar o eliminar registros.
-- Registro personal de pedidos orados, con contador y opción de desmarcar.
+- Botón «Orar por esto» / «Estoy orando», con manos de oración en el estado activo.
+- Contador compartido de personas orando por cada pedido, con una participación por navegador y opción de desmarcar.
 - Eliminación de pedidos propios desde el navegador que los envió.
 - Conservación del borrador al cambiar de pantalla.
 - Consulta de las reglas del culto de oración.
@@ -261,12 +262,16 @@ El Worker limita las solicitudes por IP y por administrador a 60 y 30 por minuto
 | `prayerOwners` | Vínculos privados para verificar eliminaciones coordinadas. |
 | `prayerSettings/reception` | Estado y horario de recepción. |
 | `prayerCounters/requests` | Contador de numeración consecutiva. |
+| `prayerFeed/{id}/participants` | Participaciones anónimas para contar personas orando. |
+| `prayerFeed/{id}/participationKeys` y `participantOwners` | Comprobantes privados para conservar y desmarcar cada participación. |
 
 Los motivos de oración son visibles para quienes acceden a la aplicación. **Ocultar mi nombre** oculta la identidad del remitente, pero el motivo continúa siendo público; el texto del pedido puede contener otros datos personales.
 
 Cada navegador conserva las claves de sus propios comprobantes. Estas claves permiten consultar y eliminar esos pedidos. El listado completo de originales y la lectura de los vínculos privados requieren administración. Las reglas verifican además el horario de recepción, la estructura de los envíos y las actualizaciones de estado.
 
-El nombre recordado, las claves de pedidos propios y las marcas personales de oración se guardan en el navegador. Borrar sus datos elimina el acceso personal a esos comprobantes y las marcas guardadas. Evitar compartir el navegador cuando se necesite proteger ese acceso.
+El nombre recordado, las claves de pedidos propios y una clave aleatoria de participación se guardan en el navegador. Las participaciones se conservan también en la base para mostrar el contador compartido, sin publicar nombres ni claves privadas. Cada navegador cuenta una vez por pedido; al desmarcar se resta su participación. Las marcas personales anteriores se incorporan al abrir los pedidos. Borrar los datos del navegador elimina el acceso a los comprobantes y la posibilidad de desmarcar las participaciones anteriores. Evitar compartir el navegador cuando se necesite proteger ese acceso.
+
+Al eliminar un pedido, sus subcolecciones de participación dejan de ser accesibles por las reglas; Firestore no las elimina automáticamente junto con el documento padre.
 
 Las carpetas `.secrets/`, `data/`, `.firebase/`, `.wrangler/` y `output/`, los archivos de entorno y los registros de ejecución están excluidos de Git. Las credenciales y los pedidos reales no forman parte del repositorio. Al generar un resumen, los datos seleccionados se procesan en Cloudflare y Gemini; revisar sus condiciones de tratamiento de datos antes de usar la función con información sensible.
 

@@ -3,10 +3,11 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, runTransaction } from 'firebase/firestore';
+import { doc, collection, getDoc, getDocs, getCountFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch, runTransaction } from 'firebase/firestore';
 import { runWithNumberRetry } from '../public/numbered-transaction.js';
 import { scheduleFields, isReceptionOpen } from '../public/schedule.js';
 import { deleteRequestBatches } from '../public/bulk-delete.js';
+import { setParticipation } from '../public/prayer-participation.js';
 
 let env;
 before(async () => {
@@ -21,6 +22,48 @@ before(async () => {
   await env.withSecurityRulesDisabled(context=>setDoc(doc(context.firestore(),'prayerCounters/requests'),{lastNumber:0,publicId:''}));
 });
 after(async () => { await env?.cleanup(); });
+
+test('Participaciones compartidas: personas distintas, reintentos, privacidad y desmarcado', async () => {
+  await seedSettings(reception('open'));
+  const db = env.unauthenticatedContext().firestore(), key = randomBytes(24).toString('hex');
+  await submit(db, key);
+  const publicId = (await getDoc(doc(db, 'prayerRequests', key))).data().publicId;
+  const parent = doc(db, 'prayerFeed', publicId), votes = collection(parent, 'participants');
+  const ana = randomBytes(24).toString('hex'), luis = randomBytes(24).toString('hex');
+  const set = (voter, praying, onlyIfMissing = false) => setParticipation({ doc, runTransaction }, db, publicId, voter, praying, randomBytes(16).toString('hex'), onlyIfMissing);
+  const count = async () => (await getCountFromServer(votes)).data().count;
+  assert.equal(await count(), 0);
+  await assertSucceeds(set(ana, true));
+  assert.equal(await count(), 1);
+  await Promise.all([set(ana, true), set(ana, true), set(luis, true)]);
+  assert.equal(await count(), 2);
+  const receipt = doc(parent, 'participationKeys', ana), voteId = (await getDoc(receipt)).data().voteId;
+  await assertFails(getDocs(collection(parent, 'participationKeys')));
+  await assertFails(getDoc(doc(parent, 'participantOwners', voteId)));
+  await assertFails(getDocs(collection(parent, 'participantOwners')));
+  assert.deepEqual((await getDoc(doc(parent, 'participants', voteId))).data(), { praying: true });
+  await assertFails(deleteDoc(doc(parent, 'participants', voteId)));
+  await assertFails(setDoc(doc(parent, 'participants', randomBytes(16).toString('hex')), { praying: true }));
+  await assertFails(updateDoc(receipt, { voteId: null }));
+  await assertFails(updateDoc(doc(parent, 'participants', voteId), { praying: false }));
+  await assertSucceeds(set(ana, false));
+  await assertSucceeds(set(ana, false));
+  assert.equal(await count(), 1);
+  await assertSucceeds(set(ana, true, true)); // An old local mark cannot undo an explicit unmark.
+  assert.equal(await count(), 1);
+  await seedSettings(reception('closed'));
+  await assertSucceeds(set(ana, true));
+  assert.equal(await count(), 2);
+  await assertSucceeds(set(luis, false));
+  assert.equal(await count(), 1);
+  const deletion = writeBatch(db);
+  deletion.delete(doc(db, 'prayerRequests', key));
+  deletion.delete(parent);
+  deletion.delete(doc(db, 'prayerOwners', publicId));
+  await deletion.commit();
+  await assertFails(getCountFromServer(votes));
+  await assert.rejects(set(ana, true), /ya no está disponible/);
+});
 function reception(mode, days = [1,2,3,4,5,6,7], start = '00:00', end = '24:00') {
   return scheduleFields({ mode, days, start, end });
 }

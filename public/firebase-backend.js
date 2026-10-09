@@ -3,13 +3,14 @@ import {
   getAuth, setPersistence, browserSessionPersistence, signInWithEmailAndPassword, signOut
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import {
-  getFirestore, collection, doc, getDoc, getDocs, setDoc, writeBatch, runTransaction, serverTimestamp
+  getFirestore, collection, doc, getDoc, getDocs, getCountFromServer, setDoc, writeBatch, runTransaction, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 import { runWithNumberRetry } from './numbered-transaction.js';
 import { deleteRequestBatches } from './bulk-delete.js';
 import { firebaseConfig, adminEmail } from './firebase-config.js';
 import { scheduleFields, isReceptionOpen, receptionDays } from './schedule.js';
 import { summaryServiceUrl } from './summary-config.js';
+import { setParticipation } from './prayer-participation.js';
 
 const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
 const persistence = setPersistence(auth, browserSessionPersistence);
@@ -61,7 +62,7 @@ function request(snapshot, includeKey = false) {
     reason && typeof reason.text === 'string' && categories.includes(reason.category)
   ).map(reason => ({ text: reason.text, category: reason.category })) : [];
   return {
-    id: snapshot.id, number: value.number, ...(includeKey ? { key: snapshot.id } : {}),
+    id: snapshot.id, prayerId: value.publicId || (snapshot.ref.parent.id === 'prayerFeed' ? snapshot.id : null), number: value.number, ...(includeKey ? { key: snapshot.id } : {}),
     name: value.private ? 'Anónimo' : String(value.name || ''), private: !!value.private, reasons,
     createdAt: value.createdAt.toDate().toISOString(), status: value.status
   };
@@ -77,6 +78,27 @@ function validateDraft(data) {
 }
 export async function api(url, method = 'GET', data) {
   try {
+    if ((url === '/prayers' && method === 'POST') || (url.startsWith('/prayers/') && method === 'PUT')) {
+      if (!/^[a-f0-9]{48}$/.test(data?.voterKey || '')) throw fail('No pudimos identificar tu registro de oración.');
+      const ids = url === '/prayers' ? data.ids : [url.split('/').pop()];
+      if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id))) throw fail('Pedido inválido.');
+      if (method === 'PUT') {
+        if (typeof data.praying !== 'boolean') throw fail('Estado de oración inválido.');
+        await setParticipation({ doc, runTransaction }, db, ids[0], data.voterKey, data.praying, randomId(16), data.onlyIfMissing === true);
+      }
+      const results = [];
+      for (let start = 0; start < ids.length; start += 10) {
+        results.push(...await Promise.all(ids.slice(start, start + 10).map(async id => {
+          const parent = doc(db, 'prayerFeed', id);
+          const [count, receipt] = await Promise.all([
+            getCountFromServer(collection(parent, 'participants')),
+            getDoc(doc(parent, 'participationKeys', data.voterKey))
+          ]);
+          return { id, prayerCount: count.data().count, praying: !!receipt.data()?.voteId, registered: receipt.exists() };
+        })));
+      }
+      return method === 'PUT' ? results[0] : results;
+    }
     if (url === '/settings' && method === 'GET') return await settings();
     if (url === '/login' && method === 'POST') {
       await persistence;

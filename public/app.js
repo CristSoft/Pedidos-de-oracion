@@ -9,7 +9,8 @@ let keys=[];try{keys=JSON.parse(localStorage.getItem('prayer-keys')||'[]')}catch
 import { backendApi, restoreAdminSession, logoutAdmin } from './backend.js';
 import { receptionDays } from './schedule.js';
 import { groupRulesHTML } from './group-rules.js';
-import { readPrayerProgress, togglePrayerProgress } from './prayer-progress.js';
+import { readPrayerProgress, setPrayerProgress, prayerVoterKey } from './prayer-progress.js';
+import { prayerCountText } from './prayer-participation.js';
 import { setupAdminActions, clearSummarySession } from './admin-actions.js';
 let personalProgress=new Set();try{personalProgress=readPrayerProgress(localStorage);}catch{}
 const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
@@ -67,7 +68,8 @@ function renderForm(){
 function renderSuccess(item){$('#main').innerHTML=header('GRACIAS POR COMPARTIR','Pedido enviado','')+`<div class="layout"><div class="success-card" role="status"><div class="success-icon">${icon('check')}</div><h2>Gracias, ${esc(item.name.split(' ')[0])}.</h2><p>Enviaste ${item.reasons.length} motivo${item.reasons.length===1?'':'s'} de oración.<br>No tenés que hacer nada más.</p><button class="primary" id="another">${icon('plus')}Hacer otro pedido</button><button class="secondary" style="margin-top:12px" data-page="mis">Ver mis pedidos</button></div>${aside()}</div>`;$('#another').onclick=()=>navigate('nuevo');window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});}
 const prayerCheck=()=>`<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>`;
 function prayerStatus(done,admin=false){return `${done?prayerCheck():icon('clock')}<span>${done?(admin?'Ya oramos':'Orado'):'Pendiente'}</span>`;}
-function personalPrayerButton(number){const done=personalProgress.has(number);return `<button type="button" class="personal-prayer ${done?'prayed':''}" data-personal-number="${number}" aria-pressed="${done}" aria-label="${done?'Desmarcar oración':'Marcar que ya oré'} por el pedido ${number}">${prayerCheck()}${done?'Ya oré · Desmarcar':'Ya oré'}</button>`;}
+const personalPrayerLabel=done=>done?`${libraryIcon('hands-praying')}Estoy orando`:'Orar por esto';
+function personalPrayerButton(number,available=true){const done=personalProgress.has(number);return `<button type="button" class="personal-prayer ${done?'prayed':''}" data-personal-number="${number}" aria-pressed="${done}" ${available?'':'disabled'} aria-label="${done?'Estoy orando. Dejar de marcar oración':'Orar por esto'} — pedido ${number}">${personalPrayerLabel(done)}</button>`;}
 function requestContent(reasons){
  return reasons.map(({text})=>{
   const newline=text.indexOf('\n');
@@ -84,7 +86,8 @@ function requestHTML(r,admin,own=false){
   ${own?'':`<p class="request-author">${esc(r.private?'Anónimo':r.name)}</p>`}
   <div class="request-body" id="${bodyId}">${requestContent(r.reasons)}</div>
   <button type="button" class="read-request" aria-expanded="false" aria-controls="${bodyId}" hidden>Leer pedido completo ${icon('arrow')}</button>
-  <div class="request-actions">${admin?`<button class="personal-prayer" data-status="${esc(r.id)}">${prayerCheck()}${done?'Volver a pendiente':'Marcar como orado'}</button>`:personalPrayerButton(r.number)}
+  <p class="prayer-count" data-prayer-count role="status" aria-live="polite">${prayerCountText(r.prayerCount||0)}</p>
+  <div class="request-actions">${admin?`<button class="personal-prayer" data-status="${esc(r.id)}">${prayerCheck()}${done?'Volver a pendiente':'Marcar como orado'}</button>`:personalPrayerButton(r.number,!!r.prayerId)}
    ${r.private?`<span class="confidential">${icon('lock')} Sin nombre</span>`:''}
    <details class="request-menu"><summary aria-label="Más opciones del pedido ${r.number}" title="Más opciones"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></summary><div class="request-menu-content"><span class="request-number">Pedido #${r.number}</span><time datetime="${esc(r.createdAt)}">${date.toLocaleString('es-AR',{dateStyle:'long',timeStyle:'short'})}</time>${admin||own?`<button type="button" class="delete-request" data-delete="${esc(r.id)}">${libraryIcon('trash-2')}Eliminar pedido</button>`:''}</div></details>
   </div></article>`;
@@ -103,14 +106,34 @@ function updatePrayerProgress(items){
  const summary=$('#prayer-progress'),done=items.filter(item=>personalProgress.has(item.number)).length,pending=items.length-done;
  if(summary)summary.textContent=page==='mis'?(items.length?(pending?`Tenés ${pending} pedido${pending===1?' pendiente':'s pendientes'}`:'Ya oraste por todos tus pedidos'):'Un espacio para compartir lo que llevás en el corazón.'):`Tu registro: ${done} de ${items.length} pedidos orados`;
 }
-function togglePersonalPrayer(event,items){
+async function loadParticipation(items,migrate=true){
+ const eligible=items.filter(item=>item.prayerId);if(!eligible.length)return;
+ let voterKey,canSave=true;
+ try{voterKey=prayerVoterKey(localStorage);}catch{canSave=false;voterKey=prayerVoterKey({getItem:()=>null,setItem:()=>{}});}
+ const states=await api('/prayers','POST',{ids:eligible.map(item=>item.prayerId),voterKey});
+ for(const item of eligible){
+  let state=states.find(state=>state.id===item.prayerId);
+  if(migrate&&canSave&&!state.registered&&personalProgress.has(item.number))state=await api('/prayers/'+item.prayerId,'PUT',{voterKey,praying:true,onlyIfMissing:true});
+  item.prayerCount=state.prayerCount;item.praying=state.praying;
+  if(migrate){if(state.praying)personalProgress.add(item.number);else personalProgress.delete(item.number);try{setPrayerProgress(localStorage,item.number,state.praying);}catch{}}
+ }
+}
+async function togglePersonalPrayer(event,items){
  const button=event.target.closest('[data-personal-number]');if(!button)return false;
- const number=Number(button.dataset.personalNumber);
+ if(button.disabled)return true;
+ const number=Number(button.dataset.personalNumber),item=items.find(item=>item.number===number);if(!item?.prayerId)return true;
+ button.disabled=true;button.setAttribute('aria-busy','true');
  try{
-  personalProgress=togglePrayerProgress(localStorage,number);const done=personalProgress.has(number);
-  button.setAttribute('aria-pressed',String(done));button.setAttribute('aria-label',`${done?'Desmarcar oración':'Marcar que ya oré'} por el pedido ${number}`);button.classList.toggle('prayed',done);button.innerHTML=prayerCheck()+(done?'Ya oré · Desmarcar':'Ya oré');
+  let voterKey;try{voterKey=prayerVoterKey(localStorage);}catch{throw new Error('El navegador no permite guardar tu registro de oración. Habilitá el almacenamiento y volvé a intentar.');}
+  const state=await api('/prayers/'+item.prayerId,'PUT',{voterKey,praying:!item.praying}),done=state.praying;
+  item.praying=done;item.prayerCount=state.prayerCount;if(done)personalProgress.add(number);else personalProgress.delete(number);
+  try{setPrayerProgress(localStorage,number,done);}catch{}
+  if(!button.isConnected)return true;
+  button.setAttribute('aria-pressed',String(done));button.setAttribute('aria-label',`${done?'Estoy orando. Dejar de marcar oración':'Orar por esto'} — pedido ${number}`);button.classList.toggle('prayed',done);button.innerHTML=personalPrayerLabel(done);
+  button.closest('.request-item').querySelector('[data-prayer-count]').textContent=prayerCountText(state.prayerCount);
   const badge=button.closest('.request-item').querySelector('[data-personal-status]');badge.classList.toggle('done',done);badge.innerHTML=prayerStatus(done);updatePrayerProgress(items);
- }catch{toast('No pudimos guardar tu marca en este dispositivo. Volvé a intentar.');}
+ }catch(error){toast(error.message||'No pudimos guardar tu oración. Volvé a intentar.');}
+ finally{button.disabled=false;button.removeAttribute('aria-busy');}
  return true;
 }
 async function deleteRequest(item,button){
@@ -123,18 +146,18 @@ async function deleteRequest(item,button){
 async function renderMine(){
  $('#main').innerHTML=header('','Mis pedidos de oración','')+'<p id="prayer-progress" class="prayer-progress" role="status" aria-live="polite"></p>'+`<button class="primary new-request-button" data-page="nuevo">${icon('plus')}Nuevo pedido</button><div id="mine" class="loading" role="region" aria-label="Mis pedidos" aria-busy="true">Cargando tus pedidos…</div>`;
  const container=$('#mine');
- try{const items=await api('/mine','POST',{keys});if(!container.isConnected)return;keys=items.map(item=>item.key);try{localStorage.setItem('prayer-keys',JSON.stringify(keys));}catch{}container.className='request-list';container.innerHTML=items.length?items.reverse().map(r=>requestHTML(r,false,true)).join(''):`<div class="panel empty">${icon('heart')}<h2>Estamos para acompañarte</h2><p>Tocá «Nuevo pedido» para compartir tu primer motivo de oración.</p></div>`;observeRequestPreviews();updatePrayerProgress(items);container.onclick=async e=>{if(togglePersonalPrayer(e,items))return;const button=e.target.closest('[data-delete]');if(!button)return;const item=items.find(item=>item.id===button.dataset.delete);if(item&&await deleteRequest(item,button)&&container.isConnected)renderMine();};}
+ try{const items=await api('/mine','POST',{keys});await loadParticipation(items);if(!container.isConnected)return;keys=items.map(item=>item.key);try{localStorage.setItem('prayer-keys',JSON.stringify(keys));}catch{}container.className='request-list';container.innerHTML=items.length?items.reverse().map(r=>requestHTML(r,false,true)).join(''):`<div class="panel empty">${icon('heart')}<h2>Estamos para acompañarte</h2><p>Tocá «Nuevo pedido» para compartir tu primer motivo de oración.</p></div>`;observeRequestPreviews();updatePrayerProgress(items);container.onclick=async e=>{if(await togglePersonalPrayer(e,items))return;const button=e.target.closest('[data-delete]');if(!button)return;const item=items.find(item=>item.id===button.dataset.delete);if(item&&await deleteRequest(item,button)&&container.isConnected)renderMine();};}
  catch(e){if(container.isConnected){container.innerHTML=`<p class="error" role="alert">${esc(e.message)}</p><button class="secondary" id="retry-mine">Volver a intentar</button>`;$('#retry-mine').onclick=renderMine;}}
  finally{container.setAttribute('aria-busy','false');}
 }
 async function renderAll(){
  $('#main').innerHTML=header('','Oramos unos por otros','Acompañá a la comunidad con tu oración.')+'<p id="prayer-progress" class="prayer-progress" role="status" aria-live="polite"></p><div id="all-requests" class="loading" role="region" aria-label="Todos los pedidos" aria-busy="true">Cargando pedidos…</div>';
  const container=$('#all-requests');
- try{const items=await api('/shared-requests');if(!container.isConnected)return;container.className='request-list';container.innerHTML=items.length?items.map(r=>requestHTML(r,false)).join(''):'<div class="panel empty"><h2>Todavía no hay pedidos</h2><p>Cuando alguien comparta un motivo, lo vas a encontrar acá.</p><button class="primary" data-page="nuevo">Compartir un pedido</button></div>';observeRequestPreviews();updatePrayerProgress(items);container.onclick=e=>togglePersonalPrayer(e,items);}
+ try{const items=await api('/shared-requests');await loadParticipation(items);if(!container.isConnected)return;container.className='request-list';container.innerHTML=items.length?items.map(r=>requestHTML(r,false)).join(''):'<div class="panel empty"><h2>Todavía no hay pedidos</h2><p>Cuando alguien comparta un motivo, lo vas a encontrar acá.</p><button class="primary" data-page="nuevo">Compartir un pedido</button></div>';observeRequestPreviews();updatePrayerProgress(items);container.onclick=e=>togglePersonalPrayer(e,items);}
  catch(e){if(container.isConnected)container.innerHTML=`<p class="error" role="alert">${esc(e.message)}</p><button class="secondary" id="retry-all">Volver a intentar</button>`;if($('#retry-all'))$('#retry-all').onclick=renderAll;}
  finally{container.setAttribute('aria-busy','false');}
 }
-function renderHelp(){$('#main').innerHTML=header('','Cómo funciona','Unidos, nos acompañamos en oración.')+`<section class="panel">${[['Tu nombre','Tu nombre queda guardado en este navegador. Podés cambiarlo al crear un pedido.'],['Tu motivo','Escribí un motivo por pedido. Para enviar otro, hacé un nuevo pedido.'],['Enviar','Al terminar, tocá “Enviar pedido de oración”.']].map((v,i)=>`<div class="help-step"><span>${i+1}</span><div><h3>${v[0]}</h3><p>${v[1]}</p></div></div>`).join('')}<button class="primary welcome-button" data-page="nuevo">Hacer un pedido ${icon('arrow')}</button></section><section class="panel"><h2>Tu registro de oración</h2><p>Al tocar «Ya oré», el pedido pasa de Pendiente a Orado en tu registro personal. Podés desmarcarlo cuando quieras. El contador de Mis pedidos refleja las oraciones que te quedan pendientes.</p><p>Tu nombre, el acceso a tus pedidos y tus marcas de oración se guardan en este dispositivo y navegador. Si borrás sus datos o cambiás de dispositivo, ese registro no estará disponible.</p><p>Los pedidos se comparten con el grupo. Tu marca personal no cambia el estado que registra el equipo de oración.</p><button type="button" class="secondary rules-link" id="rules-button" aria-haspopup="dialog" aria-controls="rules-dialog">${libraryIcon('clipboard-list')}Reglas del grupo de oración</button></section>`;}
+function renderHelp(){$('#main').innerHTML=header('','Cómo funciona','Unidos, nos acompañamos en oración.')+`<section class="panel">${[['Tu nombre','Tu nombre queda guardado en este navegador. Podés cambiarlo al crear un pedido.'],['Tu motivo','Escribí un motivo por pedido. Para enviar otro, hacé un nuevo pedido.'],['Enviar','Al terminar, tocá “Enviar pedido de oración”.']].map((v,i)=>`<div class="help-step"><span>${i+1}</span><div><h3>${v[0]}</h3><p>${v[1]}</p></div></div>`).join('')}<button class="primary welcome-button" data-page="nuevo">Hacer un pedido ${icon('arrow')}</button></section><section class="panel"><h2>Tu registro de oración</h2><p>Al tocar «Orar por esto», el botón muestra las manos de oración y cambia a «Estoy orando». El pedido suma una persona al contador compartido. Si lo volvés a tocar, se desmarca y el contador baja. Cada navegador cuenta una sola vez por pedido.</p><p>Tu nombre, el acceso a tus pedidos y tus marcas de oración se guardan en este dispositivo y navegador. Si borrás sus datos o cambiás de dispositivo, ese registro no estará disponible.</p><p>Los pedidos se comparten con el grupo. Tu marca personal no cambia el estado que registra el equipo de oración.</p><button type="button" class="secondary rules-link" id="rules-button" aria-haspopup="dialog" aria-controls="rules-dialog">${libraryIcon('clipboard-list')}Reglas del grupo de oración</button></section>`;}
 function renderLogin(error=''){clearSummarySession();$('#main').innerHTML=header('EQUIPO DE ORACIÓN','Administración','')+`<form id="login" class="panel admin-login"><h2>Ingreso del equipo de oración</h2>${error?`<p class="error" role="alert">${esc(error)}</p>`:''}<label for="password" class="field-label">Contraseña de administración</label><input id="password" type="password" autocomplete="current-password" required><button class="primary">Ingresar a administración ${icon('arrow')}</button>${settings.demoPassword?'<p class="field-help">Versión de demostración. Contraseña: <strong>oracion</strong>.</p>':''}</form>`;$('#login').onsubmit=async e=>{e.preventDefault();const password=$('#password').value;try{const result=await api('/login','POST',{password});token=result.token;sessionStorage.setItem('prayer-admin',token);renderAdmin();}catch(err){renderLogin(err.message);}};}
 async function renderAdmin(){
  if(!token)return renderLogin();
@@ -148,7 +171,7 @@ async function renderAdmin(){
  }
  selectTab(adminTab);$('#tab-requests').onclick=()=>selectTab('pedidos',true);$('#tab-settings').onclick=()=>selectTab('horario',true);
  $('#logout').onclick=async()=>{clearSummarySession();await logoutAdmin();token='';sessionStorage.removeItem('prayer-admin');renderLogin();};
- try{const items=await api('/requests');if(!content.isConnected)return;requests=items;loaded=true;selectTab(adminTab);}
+ try{const items=await api('/requests');await loadParticipation(items,false);if(!content.isConnected)return;requests=items;loaded=true;selectTab(adminTab);}
  catch(e){if(!content.isConnected)return;if(e.status===401){token='';sessionStorage.removeItem('prayer-admin');renderLogin();}else content.innerHTML=`<p class="error">${esc(e.message)}</p>`;}
 }
 function renderRequests(){$('#admin-content').innerHTML=`<div class="admin-bulk-actions"><button type="button" class="primary" id="share-all" ${requests.length?'': 'disabled'}>${icon('send')}Compartir todos los pedidos</button><button type="button" class="secondary danger-secondary" id="delete-all" ${requests.length?'': 'disabled'}>Eliminar todos los pedidos</button></div><details class="tools-disclosure"><summary>${libraryIcon('sliders-horizontal')}<span>Buscar, filtrar y exportar<small id="tools-active" hidden>Filtros activos</small></span>${libraryIcon('chevron-down')}</summary><div class="request-tools"><input id="search" aria-label="Buscar por nombre o motivo" placeholder="Buscar por nombre o motivo…"><label>Estado<select id="filter" aria-label="Filtrar por estado"><option value="all">Todos</option><option>Pendiente</option><option>Orado</option></select></label><label>Orden<select id="sort" aria-label="Ordenar pedidos"><option value="new">Recientes</option><option value="old">Antiguos</option><option value="name">Por nombre</option></select></label><div class="tool-actions"><button class="icon-button" id="export" title="Descargar CSV" aria-label="Descargar CSV">${libraryIcon('download')}</button><button class="icon-button" id="print" title="Imprimir pedidos" aria-label="Imprimir pedidos">${libraryIcon('printer')}</button></div></div></details><p class="field-help" id="results-count"></p><div id="requests-list"></div>`;let visible=[];function filter(){queueMicrotask(observeRequestPreviews);const query=$('#search').value.trim().toLocaleLowerCase();visible=requests.filter(r=>($('#filter').value==='all'||r.status===$('#filter').value)&&(r.name+' '+r.reasons.map(v=>v.text+' '+v.category).join(' ')).toLocaleLowerCase().includes(query));if($('#sort').value==='old')visible.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));else if($('#sort').value==='name')visible.sort((a,b)=>a.name.localeCompare(b.name));else visible.sort((a,b)=>b.createdAt.localeCompare(a.createdAt));$('#tools-active').hidden=!query&&$('#filter').value==='all';$('#results-count').textContent=`${visible.length} pedidos`;$('#requests-list').innerHTML=visible.length?visible.map(r=>requestHTML(r,true)).join(''):'<div class="panel empty"><h2>No hay pedidos para mostrar.</h2></div>';}
