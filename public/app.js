@@ -50,7 +50,7 @@ function setupRules(){
  dialog.onclose=()=>document.body.classList.remove('dialog-open');
  dialog.onclick=e=>{if(e.target!==dialog)return;const box=dialog.getBoundingClientRect();if(e.clientX<box.left||e.clientX>box.right||e.clientY<box.top||e.clientY>box.bottom)dialog.close();};
 }
-function reasonHTML(r){return `<section class="reason" aria-label="Motivo de oración"><div class="reason-head"><label for="reason">Motivo de oración</label></div><textarea id="reason" required maxlength="3000" placeholder="Por ejemplo: Por la salud de mi mamá.">${esc(r.text)}</textarea></section>`;}
+function reasonHTML(r){return `<section class="reason" aria-label="Motivo de oración"><div class="reason-head"><label for="reason">Motivo de oración</label></div><textarea id="reason" required maxlength="3000" placeholder="Tocá acá para empezar a escribir tu pedido">${esc(r.text)}</textarea></section>`;}
 function renderName(){
  document.body.classList.add('name-entry');
  $('#main').innerHTML=`<form id="name-form" class="name-form"><label for="name">Nombre y apellido</label><input id="name" name="name" autocomplete="name" required maxlength="100" placeholder="Escribí tu nombre y apellido" value="${esc(savedName)}"><div id="name-error" role="alert"></div><button class="primary" type="submit">${savedName?'Guardar nombre':'Continuar'}</button>${savedName?'<button class="name-cancel" type="button" id="cancel-name">Cancelar</button>':''}</form>`;
