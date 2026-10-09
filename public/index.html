@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1684b6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Oración">
+<title>Unidos en oración · Pedidos de oración</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/prayer-app.svg" type="image/svg+xml">
+<link rel="icon" href="/icons/prayer-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/prayer-180.png" sizes="180x180">
+<link rel="stylesheet" href="/styles.css?v=20261008-admin-share">
+</head>
+<body class="name-entry">
+<div class="app-shell">
+<aside class="sidebar">
+<a class="brand" href="#mis" aria-label="Unidos en oración, inicio"><span class="brand-icon"><img class="icon" src="/icons/hands-praying.svg" alt="" aria-hidden="true"></span><span>Unidos<span class="brand-sub">en oración</span></span></a>
+<nav class="screen-tabs" role="tablist" aria-label="Pantallas"><button type="button" id="screen-tab-mis" class="nav-item active" role="tab" aria-selected="true" aria-controls="main" data-page="mis"><span data-icon="book"></span>Mis pedidos</button><button type="button" id="screen-tab-todos" class="nav-item" role="tab" aria-selected="false" aria-controls="main" tabindex="-1" data-page="todos"><span data-icon="people"></span>Todos los pedidos</button><button type="button" id="screen-tab-ayuda" class="nav-item" role="tab" aria-selected="false" aria-controls="main" tabindex="-1" data-page="ayuda"><span data-icon="help"></span>Cómo funciona</button><span class="tab-indicator" aria-hidden="true"></span></nav>
+<div class="sidebar-bottom"><button class="icon-button" id="rules-button" title="Reglas del grupo de oración" aria-label="Reglas del grupo de oración" aria-haspopup="dialog" aria-controls="rules-dialog"></button><button class="admin-link" data-page="admin" title="Administración" aria-label="Administración"><span data-icon="settings"></span>Administración</button></div>
+</aside>
+<div class="workspace">
+<main id="main" role="tabpanel" aria-labelledby="screen-tab-mis"></main>
+<footer class="main-footer">«Orad unos por otros» · Santiago 5:16</footer>
+</div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="rules-dialog" aria-labelledby="rules-title"><div class="dialog-heading"><h2 id="rules-title">🙏 Reglas del culto de oración</h2><button class="icon-button" id="close-rules" title="Cerrar reglas" aria-label="Cerrar reglas" autofocus></button></div><div id="rules-content" class="rules-content" tabindex="0"></div></dialog>
+<dialog id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description"><form method="dialog"><h2 id="delete-title">¿Borrar este pedido?</h2><p id="delete-description">Se borrarán todos sus motivos y se quitará de Todos los pedidos. No se puede deshacer.</p><div class="delete-dialog-actions"><button class="secondary" value="cancel" autofocus>Cancelar</button><button class="primary danger-primary" id="delete-confirm" value="confirm">Borrar pedido</button></div></form></dialog>
+<dialog id="delete-all-dialog" aria-labelledby="delete-all-title" aria-describedby="delete-all-description"><form method="dialog"><h2 id="delete-all-title">¿Eliminar todos los pedidos?</h2><p id="delete-all-description"></p><div class="delete-dialog-actions"><button class="secondary" value="cancel" autofocus>Cancelar</button><button class="primary danger-primary" value="confirm">Eliminar todos</button></div></form></dialog>
+<dialog id="share-dialog" aria-labelledby="share-title"></dialog>
+<script type="module" src="/app.js?v=20261008-admin-share"></script>
+</body></html>

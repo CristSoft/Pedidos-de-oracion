@@ -1,0 +1,35 @@
+{
+  "name": "unidos-en-oracion",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-prayer-rules \"node --test tests/firestore-rules.mjs\"",
+    "deploy:firebase": "firebase deploy --only hosting,firestore:rules --project pedidos-de-oracion-sur --account adventistasjosecpazsur@gmail.com"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
+    "firebase-admin": "^14.5.0",
+    "lucide-static": "^1.52.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.0"
+  },
+  "description": "Aplicación web para recibir, administrar y compartir pedidos de oración, con Firebase y resúmenes mediante Gemini.",
+  "license": "Apache-2.0",
+  "author": "CristSoft",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CristSoft/Pedidos-de-oracion.git"
+  },
+  "homepage": "https://pedidos-de-oracion-sur.web.app",
+  "bugs": {
+    "url": "https://github.com/CristSoft/Pedidos-de-oracion/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

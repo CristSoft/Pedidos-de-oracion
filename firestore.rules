@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function admin() {
+      return request.auth != null && request.auth.token.get('prayerAdmin', false) == true;
+    }
+    function receptionOpen() {
+      let settings = get(/databases/$(database)/documents/prayerSettings/reception).data;
+      return settings.mode == 'open'
+        || (settings.mode == 'weekly' && weeklyOpen(settings, request.time))
+        || (settings.mode == 'scheduled' && request.time >= settings.opensAt && request.time < settings.closesAt);
+    }
+    function weeklyOpen(settings, instant) {
+      let local = instant - duration.value(3, 'h');
+      let minute = local.hours() * 60 + local.minutes();
+      return local.dayOfWeek() in settings.days
+        && minute >= settings.startMinute && minute < settings.endMinute;
+    }
+    function validWeeklySettings(settings) {
+      return settings.keys().hasAll(['mode', 'days', 'start', 'end', 'startMinute', 'endMinute', 'timezone'])
+        && settings.keys().hasOnly(['mode', 'days', 'start', 'end', 'startMinute', 'endMinute', 'timezone'])
+        && settings.mode in ['open', 'closed', 'weekly']
+        && settings.days is list && settings.days.size() > 0 && settings.days.size() <= 7
+        && settings.days.toSet().hasOnly([1, 2, 3, 4, 5, 6, 7])
+        && settings.timezone == 'America/Argentina/Buenos_Aires'
+        && settings.start is string && settings.start.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && settings.end is string && settings.end.matches('^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$')
+        && settings.startMinute is int && settings.endMinute is int
+        && settings.startMinute == int(settings.start.split(':')[0]) * 60 + int(settings.start.split(':')[1])
+        && settings.endMinute == int(settings.end.split(':')[0]) * 60 + int(settings.end.split(':')[1])
+        && settings.startMinute >= 0 && settings.endMinute <= 1440 && settings.startMinute < settings.endMinute;
+    }
+    match /prayerSettings/reception {
+      allow get: if true;
+      allow create, update: if admin() && validWeeklySettings(request.resource.data);
+    }
+    function reservedNumber(number, publicId) {
+      return number == get(/databases/$(database)/documents/prayerCounters/requests).data.lastNumber + 1
+        && getAfter(/databases/$(database)/documents/prayerCounters/requests).data.lastNumber == number
+        && getAfter(/databases/$(database)/documents/prayerCounters/requests).data.publicId == publicId;
+    }
+    match /prayerCounters/requests {
+      allow get: if true;
+      allow update: if receptionOpen()
+        && request.resource.data.keys().hasOnly(['lastNumber', 'publicId'])
+        && request.resource.data.lastNumber is int
+        && request.resource.data.lastNumber == resource.data.lastNumber + 1
+        && request.resource.data.publicId is string && request.resource.data.publicId.matches('^[a-f0-9]{32}$')
+        && !exists(/databases/$(database)/documents/prayerFeed/$(request.resource.data.publicId))
+        && getAfter(/databases/$(database)/documents/prayerFeed/$(request.resource.data.publicId)).data.number == request.resource.data.lastNumber
+        && getAfter(/databases/$(database)/documents/prayerFeed/$(request.resource.data.publicId)).data.createdAt == request.time;
+    }
+    function validPrayer(data) {
+      return data.number is int && data.number > 0
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.private is bool && (!data.private || data.name == 'Anónimo')
+        && data.reasons is list && data.reasons.size() == 1
+        && data.createdAt == request.time && data.status == 'Pendiente';
+    }
+    function sharedPrayer(data) {
+      return {'name': data.name, 'private': data.private, 'reasons': data.reasons,
+        'createdAt': data.createdAt, 'status': data.status, 'number': data.number};
+    }
+    function deletingOriginal(publicId) {
+      let key = get(/databases/$(database)/documents/prayerOwners/$(publicId)).data.key;
+      return key.matches('^[a-f0-9]{48}$')
+        && get(/databases/$(database)/documents/prayerRequests/$(key)).data.publicId == publicId
+        && !existsAfter(/databases/$(database)/documents/prayerRequests/$(key));
+    }
+    match /prayerOwners/{publicId} {
+      // This private lookup lets rules verify a batch deletion without publishing receipt keys.
+      allow read: if admin();
+      allow create: if receptionOpen() && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.keys().hasOnly(['key'])
+        && request.resource.data.key is string && request.resource.data.key.matches('^[a-f0-9]{48}$')
+        && getAfter(/databases/$(database)/documents/prayerRequests/$(request.resource.data.key)).data.publicId == publicId;
+      allow delete: if admin() || deletingOriginal(publicId);
+    }
+    match /prayerFeed/{publicId} {
+      // Shared records never contain receipt keys or confidential names from historical records.
+      allow read: if true;
+      allow create: if receptionOpen() && publicId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.keys().hasOnly(['name', 'private', 'reasons', 'createdAt', 'status', 'number'])
+        && validPrayer(request.resource.data)
+        && reservedNumber(request.resource.data.number, publicId);
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['Pendiente', 'Orado'];
+      allow delete: if admin() || deletingOriginal(publicId);
+    }
+    match /prayerRequests/{key} {
+      // The random 192-bit document ID is a private receipt stored only in its sending browser.
+      allow get: if key.matches('^[a-f0-9]{48}$');
+      allow list: if admin();
+      allow create: if receptionOpen()
+        && key.matches('^[a-f0-9]{48}$')
+        && request.resource.data.keys().hasOnly(['name', 'private', 'reasons', 'createdAt', 'status', 'publicId', 'number'])
+        && validPrayer(request.resource.data)
+        && reservedNumber(request.resource.data.number, request.resource.data.publicId)
+        && request.resource.data.publicId is string && request.resource.data.publicId.matches('^[a-f0-9]{32}$')
+        && getAfter(/databases/$(database)/documents/prayerFeed/$(request.resource.data.publicId)).data
+          == sharedPrayer(request.resource.data)
+        && getAfter(/databases/$(database)/documents/prayerOwners/$(request.resource.data.publicId)).data.key == key;
+      allow delete: if (admin() || key.matches('^[a-f0-9]{48}$'))
+        && (!resource.data.keys().hasAny(['publicId'])
+          || (!existsAfter(/databases/$(database)/documents/prayerFeed/$(resource.data.publicId))
+            && !existsAfter(/databases/$(database)/documents/prayerOwners/$(resource.data.publicId))));
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['Pendiente', 'Orado']
+        && (!resource.data.keys().hasAny(['publicId'])
+          || getAfter(/databases/$(database)/documents/prayerFeed/$(resource.data.publicId)).data.status == request.resource.data.status);
+    }
+  }
+}

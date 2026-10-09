@@ -1,0 +1,17 @@
+data/
+node_modules/
+.env
+.env.*
+!.env.example
+firebase-debug.log*
+.firebase/
+.secrets/
+firestore-debug.log*
+ui-debug.log*
+output/
+*.log
+*.pem
+*.p12
+*.pfx
+.DS_Store
+Thumbs.db

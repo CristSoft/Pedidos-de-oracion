@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Unidos en oración",
+  "short_name": "Oración",
+  "description": "Compartí tus pedidos de oración con la comunidad.",
+  "lang": "es-AR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4fafe",
+  "theme_color": "#1684b6",
+  "icons": [
+    { "src": "/icons/prayer-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/prayer-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/prayer-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
